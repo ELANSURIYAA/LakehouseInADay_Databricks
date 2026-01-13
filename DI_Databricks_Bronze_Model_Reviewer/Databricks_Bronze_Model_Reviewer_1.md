@@ -1,69 +1,63 @@
 _____________________________________________
 ## *Author*: AAVA
-## *Created on*: 
-## *Description*: Reviewer for Bronze layer physical data model and DDL scripts for DC Health Meter Reports
+## *Created on*:   
+## *Description*:   Reviewer output for Bronze layer physical data model and DDL scripts
 ## *Version*: 1 
 ## *Updated on*: 
 _____________________________________________
 
-# Databricks Bronze Model Reviewer - DC Health Meter Reports
+# Bronze Layer Physical Data Model Reviewer Output
 
 ## 1. Alignment with Conceptual Data Model
-
 ### 1.1 ✅: Covered Requirements
-- All major entities from the conceptual model are present in the physical model: Organization, Distribution Center, Shift, Partner Type, Partner, Item, Equipment, Activity, Exception Type, and all core fact/event tables (Activity Event, Inventory Balance, Pick Transaction, Headcount Record, Kronos Timecard, Exception Event).
-- Relationships between entities are reflected in the physical model via foreign key columns (though not enforced at the Bronze layer).
-- All required business columns and audit fields are included, matching the conceptual model.
+- All six core operational fact areas (Operations, Inventory, Headcount, Picks, Kronos, Exceptions) are represented as tables in the Bronze layer (`bz_activity_event`, `bz_inventory_balance`, `bz_headcount_record`, `bz_pick_transaction`, `bz_kronos_timecard`, `bz_exception_event`).
+- All master/reference tables from the conceptual model are present: Organization, Distribution Center, Shift, Partner Type, Partner, Item, Equipment, Activity, Exception Type.
+- All required business columns and natural keys are included in the physical model.
+- Metadata columns (`load_timestamp`, `update_timestamp`, `source_system`) are consistently present for governance and lineage.
 
 ### 1.2 ❌: Missing Requirements
-- No explicit enforcement of PK/FK constraints at the physical layer (expected for Bronze, but worth noting).
-- Some constraints and integrity rules described in the conceptual model (e.g., uniqueness, value ranges) are not implemented in the DDL (Bronze layer principle, but should be documented for downstream).
+- No explicit enforcement of PK/FK relationships or constraints in the DDL (Bronze layer design decision, but worth noting for downstream integrity).
+- Some audit fields (e.g., `created_ts`, `updated_ts`) are present, but column-level masking for PII is not implemented in Bronze (not required, but flagged for privacy).
 
 ## 2. Source Data Structure Compatibility
-
 ### 2.1 ✅: Aligned Elements
-- All source data elements described in the transactional schema are present in the physical model tables.
-- Data types are mapped to Databricks-compatible types (STRING, BOOLEAN, DATE, TIMESTAMP, DECIMAL).
-- Metadata columns for lineage and governance are present in all tables.
+- All source data elements from the transactional schema are mapped to Bronze tables and columns.
+- Optional relationships (nullable FKs) are supported by allowing nulls in relevant columns.
+- All source system keys and audit fields are preserved in the physical model.
 
 ### 2.2 ❌: Misaligned or Missing Elements
-- Some nullable fields (e.g., partner_id, shift_id, equipment_id) are not explicitly marked as NULLABLE in the DDL, but Databricks treats all columns as nullable unless NOT NULL is specified.
-- No explicit handling of constraints such as uniqueness or value ranges (e.g., status values, quantity >= 0) in the DDL scripts.
+- No explicit constraints for uniqueness or idempotency (e.g., `(source_system, source_event_id)` uniqueness) in DDL scripts.
+- Some constraints from the source (e.g., value ranges, allowed values) are not enforced at the Bronze layer.
 
 ## 3. Best Practices Assessment
-
 ### 3.1 ✅: Adherence to Best Practices
-- Use of Delta Lake format for all tables ensures ACID compliance and schema evolution.
-- Consistent naming conventions (`bronze.bz_<tablename>`) across all tables.
-- Inclusion of metadata columns (`load_timestamp`, `update_timestamp`, `source_system`) for governance.
-- Partitioning and Z-ordering strategies are recommended for performance optimization (documented in guidelines).
-- Audit table included for tracking data quality and processing statistics.
+- Delta Lake format is used for all tables, supporting ACID transactions and schema evolution.
+- Consistent naming conventions (`bronze.bz_<tablename>`) and metadata columns.
+- Partitioning and Z-ordering are recommended for large tables (not enforced in DDL, but mentioned in guidelines).
+- Audit table (`bz_audit_log`) is present for tracking ingestion and errors.
 
 ### 3.2 ❌: Deviations from Best Practices
-- No primary key, foreign key, or other constraints are enforced at the table level (Bronze layer principle, but should be revisited for Silver/Gold layers).
-- No explicit clustering or partitioning defined in the DDL scripts (should be added for large tables).
-- Some columns (e.g., DECIMAL precision) may be over-provisioned for certain fields; review for optimization.
+- No clustering or partitioning strategies defined in DDL scripts (should be implemented for performance at scale).
+- No primary key or foreign key constraints (Bronze layer principle, but may impact downstream data quality).
+- No column-level masking or privacy controls for PII in the Partner table.
 
 ## 4. DDL Script Compatibility
+### 4.1 ✅ Snowflake SQL Compatibility
+- DDL scripts use Databricks SQL and Delta Lake syntax (`USING DELTA`, `LOCATION`), which are **not compatible with Snowflake**.
+- Data types such as `STRING`, `BOOLEAN`, `DECIMAL`, `TIMESTAMP` are compatible with Snowflake, but `USING DELTA` and `LOCATION` clauses are not supported in Snowflake.
+- No Spark-specific keywords (other than Delta Lake) are present.
 
-### 4.1 ❌ Snowflake SQL Compatibility
-- DDL scripts use `USING DELTA` and `LOCATION` clauses, which are not supported in Snowflake.
-- Data types such as STRING and BOOLEAN are compatible with Snowflake, but the use of Delta Lake format is not.
-- No Snowflake-specific features (e.g., clustering keys, masking policies) are present.
-
-### 4.2 ✅ Used any unsupported Snowflake features
-- No unsupported Snowflake features (e.g., Spark-specific keywords, external Delta Lake formats) are present in the DDL scripts, except for the use of Delta Lake itself, which is not supported in Snowflake.
-- No deprecated Snowflake features or invalid constructs detected.
+### 4.2 ❌ Used any unsupported Snowflake features
+- Delta Lake format (`USING DELTA`) and external storage location (`LOCATION`) are **unsupported in Snowflake**.
+- No external formats (e.g., Delta Lake, Parquet) or Spark-specific features should be used in Snowflake DDL.
 
 ## 5. Identified Issues and Recommendations
-
-- **Delta Lake Format**: The use of Delta Lake (`USING DELTA`) and external storage locations is not compatible with Snowflake. For Snowflake deployment, convert DDL scripts to use Snowflake-compatible syntax and storage formats.
-- **Constraints and Data Quality**: Document all business rules, constraints, and integrity checks for implementation in Silver/Gold layers or as part of ETL/ELT processes.
-- **Partitioning and Clustering**: Add explicit partitioning and clustering strategies in DDL scripts for large tables to optimize performance.
-- **Nullable Fields**: Clearly document which fields are nullable and ensure downstream models handle NULL values appropriately.
-- **Audit and Metadata**: Continue to maintain audit trails and metadata columns for governance and lineage tracking.
-- **Schema Evolution**: Leverage Delta Lake's schema evolution in Databricks; for Snowflake, use ALTER TABLE statements as needed.
-- **Documentation**: Maintain comprehensive documentation of all tables, columns, and relationships for future reference and onboarding.
+- **Issue:** DDL scripts are written for Databricks Delta Lake, not Snowflake. For Snowflake compatibility, remove `USING DELTA` and `LOCATION` clauses, and use Snowflake-supported syntax.
+- **Issue:** No constraints or uniqueness rules are enforced in the Bronze layer. Consider adding these in Silver/Gold layers for data integrity.
+- **Issue:** No partitioning or clustering defined in DDL. Recommend adding partitioning by date columns for large tables in downstream layers.
+- **Issue:** No privacy controls for PII in Partner table. Consider column-level masking or splitting PII into a separate table in Silver/Gold layers.
+- **Recommendation:** For Snowflake migration, rewrite DDL scripts using Snowflake syntax and supported features. Ensure all business rules and constraints are enforced in downstream layers.
+- **Recommendation:** Document any deviations from best practices and address them in Silver/Gold layer design.
 
 ---
 
