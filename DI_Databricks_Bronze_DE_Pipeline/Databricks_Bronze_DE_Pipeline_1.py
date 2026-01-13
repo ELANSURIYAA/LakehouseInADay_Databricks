@@ -2,13 +2,13 @@ _____________________________________________
 ## *Author*: AAVA
 ## *Created on*: 
 ## *Description*: Enhanced Bronze layer data ingestion pipeline for DC Health Meter Reports with improved performance and data quality
-## *Version*: 2 
+## *Version*: 1
 ## *Updated on*: 
 _____________________________________________
 
 # Enhanced Databricks Bronze Layer Data Ingestion Pipeline
 # DC Health Meter Reports - Medallion Architecture Implementation
-# Version 2: Enhanced with improved performance, data quality, and error handling
+# Version 1: Enhanced with improved performance, data quality, and error handling
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import current_timestamp, lit, col, when, isnan, isnull, count as spark_count
