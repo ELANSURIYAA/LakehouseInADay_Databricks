@@ -1,190 +1,448 @@
-DC Health Meter - Conceptual Analytics Data Model (Process Tables)
+============================================================
+DC HEALTH METER — TRANSACTIONAL SOURCE SCHEMA (ER-STYLE)
+File Name: DC_Health_Meter_Transactional_Schema.txt
+Purpose : Capture a transaction-system oriented schema (3NF-ish)
+          using the SAME business columns used in the DC Health Meter
+          model, but represented as operational tables with PK/FK
+          relationships (not a star/snowflake gold model).
+Last Updated: 2026-01-13
+============================================================
 
-The conceptual analytics model for DC Health Meter includes core dimensions (entities) and core fact tables supporting:
-Operations, Inventory, Headcount, Picks, Kronos, and Exceptions.
+1. OVERVIEW
+-----------
+The DC Health Meter initiative monitors distribution center performance
+across six core operational fact areas:
+  • Operations   • Inventory   • Headcount   • Picks   • Kronos   • Exceptions
 
-Below tables list suggested business columns, data types, constraints, and domain values.
-Note: This is a conceptual-to-logical bridge (minimal attributes). Physical attributes and platform-specific types will be finalized in the logical model.
+This file defines:
+  • Transaction-system tables and relationships (PK/FK)
+  • Column-level structure (business/natural keys + audit fields)
+  • Constraints and integrity rules suitable for ingestion and CDC
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-DIMENSION TABLES
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Table Name             | Column Name            | Business Description                                              | Data Type        | Constraints                      | Domain Values
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Organization        | Org_ID                 | Unique identifier for an organizational node                        | INT              | Primary Key, Not Null             | N/A
-                       | Org_Name               | Name of org node (region, area, network)                           | VARCHAR(255)     | Not Null                          | N/A
-                       | Org_Level              | Hierarchy level                                                    | VARCHAR(50)      | Not Null                          | Network, Region, Area, DCGroup
-                       | Parent_Org_ID          | Parent node id                                                     | INT              | Foreign Key (Dim_Organization)    | N/A
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_DistributionCenter  | DC_ID                  | Unique identifier for each distribution center                      | INT              | Primary Key, Not Null             | N/A
-                       | DC_Name                | DC name                                                             | VARCHAR(255)     | Not Null, Unique                  | N/A
-                       | Org_ID                 | Owning org node                                                     | INT              | Foreign Key (Dim_Organization)    | N/A
-                       | DC_Status              | Active status                                                       | VARCHAR(20)      | Not Null                          | Active, Inactive
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Date                | Date_Key               | Surrogate key for calendar date (YYYYMMDD)                          | INT              | Primary Key, Not Null             | N/A
-                       | Calendar_Date          | Calendar date                                                       | DATE             | Not Null, Unique                  | N/A
-                       | Week_Start_Date        | Week start date                                                     | DATE             | Not Null                          | N/A
-                       | Fiscal_Period          | Fiscal period identifier                                             | VARCHAR(20)      | Nullable                          | N/A
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Shift               | Shift_ID               | Unique identifier for shift                                          | INT              | Primary Key, Not Null             | N/A
-                       | Shift_Name             | Shift name                                                          | VARCHAR(50)      | Not Null                          | Day, Swing, Night (example)
-                       | Shift_Start_Time       | Scheduled shift start time                                           | TIME             | Nullable                          | N/A
-                       | Shift_End_Time         | Scheduled shift end time                                             | TIME             | Nullable                          | N/A
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_PartnerType         | PartnerType_ID         | Unique identifier for partner type                                  | INT              | Primary Key, Not Null             | N/A
-                       | PartnerType_Name       | Partner type category                                               | VARCHAR(50)      | Not Null, Unique                  | Internal, 3PL, TempAgency, Vendor
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Partner             | Partner_ID             | Unique identifier for a partner / operator                          | INT              | Primary Key, Not Null             | N/A
-                       | Partner_Name           | Partner name                                                         | VARCHAR(255)     | Not Null, Unique                  | N/A
-                       | PartnerType_ID         | Partner type                                                        | INT              | Foreign Key (Dim_PartnerType)     | N/A
-                       | Partner_Status         | Active status                                                       | VARCHAR(20)      | Not Null                          | Active, Inactive
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Item                | Item_ID                | Unique identifier for an item / SKU                                 | INT              | Primary Key, Not Null             | N/A
-                       | Item_Name              | Item description                                                    | VARCHAR(255)     | Not Null                          | N/A
-                       | Item_Category          | Item category                                                       | VARCHAR(100)     | Not Null                          | Dairy, Packaging, Ingredients, etc.
-                       | Item_Status            | Item status                                                         | VARCHAR(20)      | Not Null                          | Active, Discontinued
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Activity            | Activity_ID            | Unique identifier for warehouse activity                            | INT              | Primary Key, Not Null             | N/A
-                       | Activity_Name          | Activity name                                                       | VARCHAR(50)      | Not Null, Unique                  | Receiving, Putaway, Picking, Packing, Shipping, CycleCount
-                       | Activity_Group         | Activity grouping                                                   | VARCHAR(50)      | Nullable                          | Inbound, Outbound, Inventory
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Equipment            | Equipment_ID           | Unique identifier for equipment type                                | INT              | Primary Key, Not Null             | N/A
-                       | Equipment_Type         | Equipment type                                                      | VARCHAR(50)      | Not Null                          | Forklift, Conveyor, Scanner, ASRS, PalletJack, Sorter
-                       | Equipment_Status       | Equipment status                                                    | VARCHAR(20)      | Not Null                          | Active, Inactive, Maintenance
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_Employee             | Employee_ID            | Unique identifier for employee (or hashed id)                       | VARCHAR(64)      | Primary Key, Not Null             | N/A
-                       | Home_DC_ID             | Primary DC assignment                                               | INT              | Foreign Key (Dim_DistributionCenter) | N/A
-                       | Partner_ID             | Employing partner (if applicable)                                   | INT              | Foreign Key (Dim_Partner)         | N/A
-                       | Role_Name              | Labor role                                                          | VARCHAR(100)     | Nullable                          | Picker, Packer, Receiver, Lead, etc.
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Dim_ExceptionType        | ExceptionType_ID       | Unique identifier for exception type                                | INT              | Primary Key, Not Null             | N/A
-                       | Exception_Type         | High-level exception domain                                         | VARCHAR(50)      | Not Null                          | Inventory, Equipment, System, Process, Safety, Quality
-                       | Exception_Subtype      | Detailed subtype                                                    | VARCHAR(100)     | Nullable                          | N/A
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+NOTES
+-----
+• IDs below are NATURAL/OPERATIONAL KEYS (not surrogate DW keys).
+• Timestamps are stored as UTC unless stated otherwise.
+• Where a table references an external system (e.g., Kronos), the source key
+  is preserved (kronos_*).
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT TABLES (Core Facts & Grains)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+2. CONCEPTUAL ER RELATIONSHIPS (HIGH LEVEL)
+-------------------------------------------
+ORG_ORGANIZATION (1) ──< DC_DISTRIBUTION_CENTER (M)
+DC_DISTRIBUTION_CENTER (1) ──< DC_SHIFT (M)
+PARTNER_TYPE (1) ──< PARTNER (M)
+DC_DISTRIBUTION_CENTER (1) ──< EQUIPMENT (M)
 
-FACT: Fact_DC_Operations
-Grain: One record per (DC, Date, Shift, Activity, Partner, Equipment)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Column Name             | Business Description                                              | Data Type        | Constraints                      | Domain Values
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Operations_Fact_ID      | Unique identifier for operations fact row                          | BIGINT           | Primary Key, Not Null             | N/A
-DC_ID                   | Distribution center                                               | INT              | Foreign Key (Dim_DistributionCenter), Not Null | N/A
-Date_Key                | Date                                                              | INT              | Foreign Key (Dim_Date), Not Null  | N/A
-Shift_ID                | Shift                                                             | INT              | Foreign Key (Dim_Shift), Not Null | N/A
-Activity_ID             | Activity                                                          | INT              | Foreign Key (Dim_Activity), Not Null | N/A
-Partner_ID              | Partner / operator                                                | INT              | Foreign Key (Dim_Partner), Not Null | N/A
-Equipment_ID            | Equipment used                                                    | INT              | Foreign Key (Dim_Equipment), Nullable | N/A
-Throughput_Units        | Units processed                                                   | INT              | Not Null, >= 0                    | N/A
-Throughput_Lines        | Lines processed                                                   | INT              | Not Null, >= 0                    | N/A
-Labor_Hours             | Labor hours consumed                                               | DECIMAL(10,2)    | Not Null, >= 0                    | N/A
-Cycle_Time_Minutes      | Avg cycle time in minutes                                         | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-OnTime_Completion_Pct   | % completed on time                                               | DECIMAL(5,2)     | Nullable, 0–100                   | N/A
-Constraints (table-level):
-* Unique grain enforced on (DC_ID, Date_Key, Shift_ID, Activity_ID, Partner_ID, Equipment_ID) to prevent duplicates.
+DC_DISTRIBUTION_CENTER (1) ──< ACTIVITY_EVENT (M) >── (1) ACTIVITY
+PARTNER (1) ──< ACTIVITY_EVENT (M)
+ITEM (1) ──< ACTIVITY_EVENT (M)
+EQUIPMENT (0..1) ──< ACTIVITY_EVENT (M)
+DC_SHIFT (0..1) ──< ACTIVITY_EVENT (M)
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT: Fact_Inventory
-Grain: One record per (DC, Date, Item)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Inventory_Fact_ID       | Unique identifier for inventory snapshot row                      | BIGINT           | Primary Key, Not Null             | N/A
-DC_ID                   | Distribution center                                               | INT              | Foreign Key, Not Null             | N/A
-Date_Key                | Date                                                              | INT              | Foreign Key, Not Null             | N/A
-Item_ID                 | Item / SKU                                                        | INT              | Foreign Key, Not Null             | N/A
-OnHand_Qty              | On-hand quantity                                                   | INT              | Not Null, >= 0                    | N/A
-Available_Qty           | Available quantity                                                 | INT              | Not Null, >= 0                    | N/A
-Allocated_Qty           | Allocated quantity                                                 | INT              | Nullable, >= 0                    | N/A
-Damaged_Qty             | Damaged/hold quantity                                              | INT              | Nullable, >= 0                    | N/A
-OnOrder_Qty             | On-order quantity                                                  | INT              | Nullable, >= 0                    | N/A
-Constraints (table-level):
-* Available_Qty <= OnHand_Qty.
-* Unique grain enforced on (DC_ID, Date_Key, Item_ID).
+DC_DISTRIBUTION_CENTER (1) ──< INVENTORY_BALANCE (M) >── (1) ITEM
+DC_DISTRIBUTION_CENTER (1) ──< PICK_TRANSACTION (M) >── (1) ITEM
+PARTNER (0..1) ──< PICK_TRANSACTION (M)
+DC_SHIFT (0..1) ──< PICK_TRANSACTION (M)
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT: Fact_Headcount
-Grain: One record per (DC, Date, Shift, PartnerType, Partner, Role)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Headcount_Fact_ID       | Unique identifier for headcount row                               | BIGINT           | Primary Key, Not Null             | N/A
-DC_ID                   | Distribution center                                               | INT              | Foreign Key, Not Null             | N/A
-Date_Key                | Date                                                              | INT              | Foreign Key, Not Null             | N/A
-Shift_ID                | Shift                                                             | INT              | Foreign Key, Not Null             | N/A
-PartnerType_ID          | Partner type                                                      | INT              | Foreign Key, Not Null             | N/A
-Partner_ID              | Partner                                                            | INT              | Foreign Key, Nullable             | N/A
-Role_Name               | Labor role                                                         | VARCHAR(100)     | Nullable                          | N/A
-Planned_Headcount       | Planned headcount                                                   | INT              | Not Null, >= 0                    | N/A
-Actual_Headcount        | Actual headcount                                                    | INT              | Not Null, >= 0                    | N/A
-Planned_Hours           | Planned hours                                                       | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-Worked_Hours            | Worked hours                                                        | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-Constraints (table-level):
-* Unique grain enforced on (DC_ID, Date_Key, Shift_ID, PartnerType_ID, Partner_ID, Role_Name).
+DC_DISTRIBUTION_CENTER (1) ──< HEADCOUNT_RECORD (M) >── (1) PARTNER
+DC_SHIFT (0..1) ──< HEADCOUNT_RECORD (M)
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT: Fact_Picks
-Grain: One record per (DC, Date, Shift, Activity, Partner, Item)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Picks_Fact_ID           | Unique identifier for pick aggregate row                           | BIGINT           | Primary Key, Not Null             | N/A
-DC_ID                   | Distribution center                                               | INT              | Foreign Key, Not Null             | N/A
-Date_Key                | Date                                                              | INT              | Foreign Key, Not Null             | N/A
-Shift_ID                | Shift                                                             | INT              | Foreign Key, Not Null             | N/A
-Activity_ID             | Activity (typically Picking)                                      | INT              | Foreign Key, Not Null             | N/A
-Partner_ID              | Partner                                                            | INT              | Foreign Key, Not Null             | N/A
-Item_ID                 | Item / SKU (optional in rollups)                                   | INT              | Foreign Key, Not Null             | N/A
-Pick_Units              | Units picked                                                       | INT              | Not Null, >= 0                    | N/A
-Pick_Lines              | Lines picked                                                       | INT              | Not Null, >= 0                    | N/A
-Pick_Errors             | Errors / mis-picks                                                 | INT              | Nullable, >= 0                    | N/A
-Rework_Count            | Rework occurrences                                                 | INT              | Nullable, >= 0                    | N/A
-Labor_Hours             | Labor hours for picks                                               | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-Constraints (table-level):
-* Pick_Errors <= Pick_Lines (or <= Pick_Units based on business rule).
-* Unique grain enforced on (DC_ID, Date_Key, Shift_ID, Activity_ID, Partner_ID, Item_ID).
+PARTNER (1) ──< KRONOS_TIMECARD (M) >── (1) DC_DISTRIBUTION_CENTER
+DC_SHIFT (0..1) ──< KRONOS_TIMECARD (M)
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT: Fact_Kronos
-Grain: One record per (Employee, Date, Shift)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Kronos_Fact_ID          | Unique identifier for timecard row                                 | BIGINT           | Primary Key, Not Null             | N/A
-Employee_ID             | Employee                                                            | VARCHAR(64)      | Foreign Key (Dim_Employee), Not Null | N/A
-DC_ID                   | Distribution center at time of work                                 | INT              | Foreign Key, Not Null             | N/A
-Date_Key                | Date                                                              | INT              | Foreign Key, Not Null             | N/A
-Shift_ID                | Shift                                                             | INT              | Foreign Key, Not Null             | N/A
-Scheduled_Hours         | Scheduled hours                                                     | DECIMAL(10,2)    | Not Null, >= 0                    | N/A
-Worked_Hours            | Worked hours                                                        | DECIMAL(10,2)    | Not Null, >= 0                    | N/A
-Overtime_Hours          | Overtime hours                                                      | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-Absence_Flag            | Absent indicator                                                    | VARCHAR(3)       | Not Null                          | Yes, No
-Adherence_Pct           | Worked within schedule window %                                     | DECIMAL(5,2)     | Nullable, 0–100                   | N/A
-Constraints (table-level):
-* Unique grain enforced on (Employee_ID, Date_Key, Shift_ID).
+EXCEPTION_TYPE (1) ──< EXCEPTION_EVENT (M)
+DC_DISTRIBUTION_CENTER (1) ──< EXCEPTION_EVENT (M)
+PARTNER (0..1) ──< EXCEPTION_EVENT (M)
+ITEM (0..1) ──< EXCEPTION_EVENT (M)
+ACTIVITY_EVENT (0..1) ──< EXCEPTION_EVENT (M)  (optional linkage)
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-FACT: Fact_Exceptions
-Grain: One record per Exception Event (Exception Event ID)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Exception_Event_ID      | Unique identifier for exception event                               | VARCHAR(64)      | Primary Key, Not Null             | N/A
-ExceptionType_ID        | Exception type                                                      | INT              | Foreign Key (Dim_ExceptionType), Not Null | N/A
-DC_ID                   | Distribution center                                               | INT              | Foreign Key, Not Null             | N/A
-Date_Key                | Date (event date or open date)                                      | INT              | Foreign Key, Not Null             | N/A
-Shift_ID                | Shift (if applicable)                                              | INT              | Foreign Key, Nullable             | N/A
-Activity_ID             | Activity impacted (if applicable)                                   | INT              | Foreign Key, Nullable             | N/A
-Partner_ID              | Partner (if applicable)                                             | INT              | Foreign Key, Nullable             | N/A
-Item_ID                 | Item impacted (if applicable)                                       | INT              | Foreign Key, Nullable             | N/A
-Equipment_ID            | Equipment impacted (if applicable)                                  | INT              | Foreign Key, Nullable             | N/A
-Severity                | Severity level                                                      | VARCHAR(20)      | Not Null                          | Low, Medium, High, Critical
-Status                  | Current status                                                      | VARCHAR(20)      | Not Null                          | Open, InProgress, Closed
-Opened_Timestamp        | When exception opened                                                | TIMESTAMP        | Not Null                          | N/A
-Closed_Timestamp        | When exception closed                                                | TIMESTAMP        | Nullable                          | N/A
-Impact_Units            | Units impacted                                                       | INT              | Nullable, >= 0                    | N/A
-Impact_Minutes          | Minutes of impact                                                    | DECIMAL(10,2)    | Nullable, >= 0                    | N/A
-Constraints (table-level):
-* Closed_Timestamp >= Opened_Timestamp (when Closed_Timestamp is not null).
-* Prevent duplicates on Exception_Event_ID.
+3. MASTER / REFERENCE TABLES
+----------------------------
 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-GLOBAL DATA QUALITY / CONSTRAINT GUIDELINES (applies to all tables)
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-* Prevent duplicate entries for unique fields (e.g., DC_Name, Partner_Name, Item_ID, Calendar_Date).
-* Enforce referential integrity for all foreign keys to their respective dimensions.
-* Standardize domain values using reference dimensions (Activity, Equipment, PartnerType, ExceptionType).
-* Where employee data is present, apply masking/hashing and role-based access controls (PII governance).
+3.1 ORG_ORGANIZATION
+--------------------
+Description : Organization hierarchy / ownership (region, BU, cost center).
+Primary Key : org_id
+Columns:
+  - org_id (PK)
+  - org_name
+  - org_type              -- Region / BU / CostCenter / etc.
+  - parent_org_id (FK -> ORG_ORGANIZATION.org_id) NULL
+  - effective_start_dt
+  - effective_end_dt
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - org_type IN ('Region','BusinessUnit','CostCenter','Other')
+  - effective_end_dt >= effective_start_dt
+
+3.2 DC_DISTRIBUTION_CENTER
+--------------------------
+Description : Distribution Center master.
+Primary Key : dc_id
+Foreign Keys: org_id -> ORG_ORGANIZATION.org_id
+Columns:
+  - dc_id (PK)
+  - dc_name
+  - dc_code                -- external/site code
+  - org_id (FK)
+  - address_line1, address_line2, city, state_prov, postal_code, country
+  - timezone               -- IANA TZ
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - dc_code UNIQUE
+  - timezone NOT NULL
+
+3.3 DC_SHIFT
+------------
+Description : Shift definition per DC.
+Primary Key : shift_id
+Foreign Keys: dc_id -> DC_DISTRIBUTION_CENTER.dc_id
+Columns:
+  - shift_id (PK)
+  - dc_id (FK)
+  - shift_name             -- e.g., Day, Night, A, B
+  - shift_code
+  - start_time_local       -- HH:MM
+  - end_time_local         -- HH:MM
+  - crosses_midnight_flag
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - (dc_id, shift_code) UNIQUE
+
+3.4 PARTNER_TYPE
+----------------
+Description : Partner classification (Employee, Temp, 3PL, Contractor).
+Primary Key : partner_type_id
+Columns:
+  - partner_type_id (PK)
+  - partner_type_name
+  - description
+  - is_active
+  - created_ts, updated_ts
+
+3.5 PARTNER
+-----------
+Description : Worker / associate / vendor partner entity.
+Primary Key : partner_id
+Foreign Keys: partner_type_id -> PARTNER_TYPE.partner_type_id
+Columns:
+  - partner_id (PK)
+  - partner_type_id (FK)
+  - partner_external_id        -- badge ID / HR ID / vendor worker id
+  - first_name, last_name
+  - hire_dt
+  - termination_dt NULL
+  - home_dc_id (FK -> DC_DISTRIBUTION_CENTER.dc_id) NULL
+  - status                     -- Active/Inactive/Leave
+  - created_ts, updated_ts
+
+Constraints:
+  - partner_external_id UNIQUE
+  - status IN ('Active','Inactive','Leave')
+
+3.6 ITEM
+--------
+Description : Item / SKU master.
+Primary Key : item_id
+Columns:
+  - item_id (PK)
+  - item_sku
+  - item_description
+  - item_category
+  - uom                        -- unit of measure
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - item_sku UNIQUE
+
+3.7 EQUIPMENT
+-------------
+Description : Equipment/asset used in DC activities (forklift, scanner, etc.).
+Primary Key : equipment_id
+Foreign Keys: dc_id -> DC_DISTRIBUTION_CENTER.dc_id
+Columns:
+  - equipment_id (PK)
+  - dc_id (FK)
+  - equipment_type
+  - equipment_code            -- tag/asset code
+  - equipment_status          -- InService / OutOfService / Maintenance
+  - effective_start_dt
+  - effective_end_dt NULL
+  - created_ts, updated_ts
+
+Constraints:
+  - (dc_id, equipment_code) UNIQUE
+
+3.8 ACTIVITY
+------------
+Description : Activity reference (Receive, Putaway, Replenish, Pick, Pack, Ship).
+Primary Key : activity_id
+Columns:
+  - activity_id (PK)
+  - activity_code
+  - activity_name
+  - activity_group            -- e.g., Inbound/Outbound/Inventory
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - activity_code UNIQUE
+
+3.9 EXCEPTION_TYPE
+------------------
+Description : Exception taxonomy (damage, short pick, system outage, etc.).
+Primary Key : exception_type_id
+Columns:
+  - exception_type_id (PK)
+  - exception_code
+  - exception_name
+  - severity                  -- Low/Medium/High/Critical
+  - description
+  - is_active
+  - created_ts, updated_ts
+
+Constraints:
+  - exception_code UNIQUE
+  - severity IN ('Low','Medium','High','Critical')
+
+4. TRANSACTION / EVENT TABLES (CORE FACT SOURCES)
+-------------------------------------------------
+
+4.1 ACTIVITY_EVENT   (Operations Fact Source)
+---------------------------------------------
+Description : Atomic operational events at the “work performed” level.
+Grain       : 1 row per event_id (single activity execution instance).
+Primary Key : event_id
+Foreign Keys:
+  - dc_id        -> DC_DISTRIBUTION_CENTER.dc_id
+  - shift_id     -> DC_SHIFT.shift_id NULL
+  - partner_id   -> PARTNER.partner_id NULL
+  - activity_id  -> ACTIVITY.activity_id
+  - item_id      -> ITEM.item_id NULL
+  - equipment_id -> EQUIPMENT.equipment_id NULL
+
+Columns:
+  - event_id (PK)
+  - dc_id (FK)
+  - event_ts_utc
+  - shift_id (FK) NULL
+  - partner_id (FK) NULL
+  - activity_id (FK)
+  - item_id (FK) NULL
+  - equipment_id (FK) NULL
+  - source_system            -- WMS / LMS / Custom
+  - source_event_id          -- id in source
+  - location_code NULL       -- aisle/bin/door if available
+  - qty_handled NULL
+  - duration_seconds NULL
+  - labor_seconds NULL
+  - units_per_hour NULL
+  - created_ts, updated_ts
+
+Constraints / Rules:
+  - (source_system, source_event_id) UNIQUE
+  - qty_handled >= 0 when present
+  - duration_seconds >= 0 when present
+
+4.2 INVENTORY_BALANCE   (Inventory Fact Source)
+-----------------------------------------------
+Description : Inventory position snapshots or periodic balances.
+Grain       : 1 row per (dc_id, item_id, as_of_ts_utc, location_code).
+Primary Key : inventory_balance_id
+Foreign Keys:
+  - dc_id  -> DC_DISTRIBUTION_CENTER.dc_id
+  - item_id-> ITEM.item_id
+
+Columns:
+  - inventory_balance_id (PK)
+  - dc_id (FK)
+  - item_id (FK)
+  - as_of_ts_utc
+  - location_code NULL
+  - on_hand_qty
+  - allocated_qty NULL
+  - available_qty NULL
+  - in_transit_qty NULL
+  - damaged_qty NULL
+  - source_system
+  - created_ts, updated_ts
+
+Constraints:
+  - on_hand_qty >= 0
+  - allocated_qty, available_qty, in_transit_qty, damaged_qty >= 0 when present
+
+4.3 PICK_TRANSACTION   (Picks Fact Source)
+------------------------------------------
+Description : Picking transactions (each pick line / scan).
+Grain       : 1 row per pick_txn_id (atomic pick action).
+Primary Key : pick_txn_id
+Foreign Keys:
+  - dc_id      -> DC_DISTRIBUTION_CENTER.dc_id
+  - shift_id   -> DC_SHIFT.shift_id NULL
+  - partner_id -> PARTNER.partner_id NULL
+  - item_id    -> ITEM.item_id
+  - equipment_id -> EQUIPMENT.equipment_id NULL
+
+Columns:
+  - pick_txn_id (PK)
+  - dc_id (FK)
+  - pick_ts_utc
+  - shift_id (FK) NULL
+  - partner_id (FK) NULL
+  - item_id (FK)
+  - equipment_id (FK) NULL
+  - order_id NULL
+  - order_line_id NULL
+  - wave_id NULL
+  - pick_location_code NULL
+  - pick_qty
+  - short_pick_qty NULL
+  - pick_status             -- Picked/Short/Cancelled
+  - source_system
+  - source_pick_id
+  - created_ts, updated_ts
+
+Constraints:
+  - pick_qty >= 0
+  - short_pick_qty >= 0 when present
+  - pick_status IN ('Picked','Short','Cancelled')
+  - (source_system, source_pick_id) UNIQUE
+
+4.4 HEADCOUNT_RECORD   (Headcount Fact Source)
+----------------------------------------------
+Description : Headcount readings by time slice (planned vs actual, on floor).
+Grain       : 1 row per (dc_id, as_of_ts_utc, partner_id) OR aggregate slice (see flags).
+Primary Key : headcount_id
+Foreign Keys:
+  - dc_id      -> DC_DISTRIBUTION_CENTER.dc_id
+  - shift_id   -> DC_SHIFT.shift_id NULL
+  - partner_id -> PARTNER.partner_id NULL
+  - activity_id-> ACTIVITY.activity_id NULL
+
+Columns:
+  - headcount_id (PK)
+  - dc_id (FK)
+  - as_of_ts_utc
+  - shift_id (FK) NULL
+  - partner_id (FK) NULL        -- NULL allowed for aggregated records
+  - activity_id (FK) NULL
+  - headcount_type              -- Actual/Planned/OnFloor
+  - headcount_value
+  - source_system
+  - created_ts, updated_ts
+
+Constraints:
+  - headcount_type IN ('Actual','Planned','OnFloor')
+  - headcount_value >= 0
+
+4.5 KRONOS_TIMECARD   (Kronos Fact Source)
+------------------------------------------
+Description : Timecard / punches / paid hours from Kronos (or timekeeping).
+Grain       : 1 row per timecard_id (per partner per day segment).
+Primary Key : timecard_id
+Foreign Keys:
+  - partner_id -> PARTNER.partner_id
+  - dc_id      -> DC_DISTRIBUTION_CENTER.dc_id
+  - shift_id   -> DC_SHIFT.shift_id NULL
+
+Columns:
+  - timecard_id (PK)
+  - kronos_timecard_id          -- source key
+  - partner_id (FK)
+  - dc_id (FK)
+  - shift_id (FK) NULL
+  - work_date                  -- local date at DC
+  - clock_in_ts_local NULL
+  - clock_out_ts_local NULL
+  - regular_hours
+  - overtime_hours NULL
+  - paid_hours
+  - absence_code NULL
+  - source_system              -- Kronos
+  - created_ts, updated_ts
+
+Constraints:
+  - kronos_timecard_id UNIQUE
+  - regular_hours, overtime_hours, paid_hours >= 0
+  - paid_hours >= regular_hours + COALESCE(overtime_hours,0)
+
+4.6 EXCEPTION_EVENT   (Exceptions Fact Source)
+----------------------------------------------
+Description : Operational exceptions (process, quality, system, safety).
+Grain       : 1 row per exception_event_id.
+Primary Key : exception_event_id
+Foreign Keys:
+  - exception_type_id -> EXCEPTION_TYPE.exception_type_id
+  - dc_id      -> DC_DISTRIBUTION_CENTER.dc_id
+  - partner_id -> PARTNER.partner_id NULL
+  - item_id    -> ITEM.item_id NULL
+  - activity_event_id -> ACTIVITY_EVENT.event_id NULL
+
+Columns:
+  - exception_event_id (PK)
+  - exception_type_id (FK)
+  - dc_id (FK)
+  - exception_ts_utc
+  - shift_id (FK -> DC_SHIFT.shift_id) NULL
+  - partner_id (FK) NULL
+  - item_id (FK) NULL
+  - activity_event_id (FK) NULL
+  - exception_status            -- Open/InProgress/Resolved/Closed
+  - severity_override NULL      -- if differs from type
+  - notes NULL
+  - source_system
+  - source_exception_id
+  - created_ts, updated_ts
+
+Constraints:
+  - exception_status IN ('Open','InProgress','Resolved','Closed')
+  - (source_system, source_exception_id) UNIQUE
+
+5. CROSS-CUTTING CONSTRAINTS & DATA QUALITY RULES
+-------------------------------------------------
+5.1 Mandatory Relationships
+  - Every ACTIVITY_EVENT must have a valid dc_id and activity_id.
+  - Every PICK_TRANSACTION must have a valid dc_id and item_id.
+  - Every INVENTORY_BALANCE must have a valid dc_id and item_id.
+  - Every KRONOS_TIMECARD must have a valid partner_id and dc_id.
+  - Every EXCEPTION_EVENT must have a valid exception_type_id and dc_id.
+
+5.2 Optional Relationships (Allowed NULL FKs)
+  - partner_id may be NULL for machine-generated events or aggregate slices.
+  - shift_id may be NULL when shift attribution is derived downstream.
+  - equipment_id may be NULL when not captured.
+
+5.3 Uniqueness / Idempotency
+  - Each event table preserves (source_system, source_*_id) uniqueness to support
+    replays and CDC.
+
+5.4 Time Rules
+  - For DC-local dates/times, DC_DISTRIBUTION_CENTER.timezone is the source of truth.
+  - work_date is local date at the DC.
+
+6. SECURITY / PRIVACY (MINIMUM)
+-------------------------------
+• PARTNER contains PII (names). If required, split into PARTNER (keys + type + status)
+  and PARTNER_PROFILE (PII) or apply column-level masking.
+• Downstream models should use partner_id and partner_type_id for reporting unless
+  named display is explicitly authorized.
+
+7. MAPPING BACK TO HEALTH METER FACT DOMAINS
+-------------------------------------------
+Operations  -> ACTIVITY_EVENT
+Inventory   -> INVENTORY_BALANCE
+Picks       -> PICK_TRANSACTION
+Headcount   -> HEADCOUNT_RECORD
+Kronos      -> KRONOS_TIMECARD
+Exceptions  -> EXCEPTION_EVENT
+
+============================================================
+END OF FILE
+============================================================
