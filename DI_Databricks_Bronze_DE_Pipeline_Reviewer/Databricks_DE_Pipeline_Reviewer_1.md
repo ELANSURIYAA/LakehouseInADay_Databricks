@@ -1,8 +1,8 @@
 _____________________________________________
 ## *Author*: AAVA
-## *Created on*: 
-## *Description*: Reviewer for Databricks Bronze DE Pipeline for DC Health Meter Reports
-## *Version*: 1
+## *Created on*:  
+## *Description*: Reviewer for Databricks Bronze DE Pipeline - Validation, Compatibility, and Standards Compliance
+## *Version*: 1 
 ## *Updated on*: 
 _____________________________________________
 
@@ -12,92 +12,98 @@ _____________________________________________
 
 ## 1. Validation Against Metadata
 
-| Criteria | Status |
-|----------|--------|
-| Source and target data models align with mapping | ✅ |
-| Data types and column names are consistent | ✅ |
-| Mapping rules are followed | ✅ |
+| Check | Status |
+|-------|--------|
+| Source and Target Data Model Alignment | ✅ |
+| Mapping Rules Followed | ✅ |
+| Data Types Consistent | ✅ |
+| Column Names Consistent | ✅ |
 
 **Details:**
-- The pipeline code loads all master/reference and transaction/event tables as defined in the mapping file and process tables.
-- All columns in the mapping are present in the pipeline code, and the physical model matches the mapping.
-- Data types (STRING, BOOLEAN, TIMESTAMP, DECIMAL, etc.) are preserved as per the physical model and mapping.
+- The pipeline code aligns with the source and target data models as defined in the mapping and physical model files.
+- All columns in the ingestion logic match the mapping tables and physical DDL.
+- Data types (STRING, BOOLEAN, TIMESTAMP, DECIMAL, etc.) are preserved as per the physical model.
+- Metadata fields (created_ts, updated_ts, source_system, etc.) are included as required.
 
 ---
 
 ## 2. Compatibility with Databricks
 
-| Criteria | Status |
-|----------|--------|
-| Only supported PySpark/Delta Lake features used | ✅ |
-| No unsupported features detected | ✅ |
-| Delta format, Z-ordering, and vacuum are supported | ✅ |
+| Check | Status |
+|-------|--------|
+| PySpark Syntax | ✅ |
+| Delta Lake Usage | ✅ |
+| Unsupported Features | ✅ |
+| Configuration Options | ✅ |
 
 **Details:**
-- The pipeline uses only supported PySpark and Delta Lake features (e.g., `.write.format("delta")`, `.saveAsTable()`, ZORDER, VACUUM, etc.).
-- No unsupported features (per knowledge base) are present in the code.
-- All configurations and options are compatible with Databricks runtime.
+- The code uses only supported PySpark and Databricks features.
+- All `.write.format("delta")` and `.saveAsTable()` usages are compatible.
+- No unsupported features (per knowledge base) are present.
+- Adaptive query execution, Z-ordering, and vacuum are supported in Databricks.
 
 ---
 
 ## 3. Validation of Join Operations
 
-| Criteria | Status |
-|----------|--------|
-| All join columns exist in source tables | ✅ |
-| Join conditions align with data structure | ✅ |
-| Data type compatibility for joins | ✅ |
+| Check | Status |
+|-------|--------|
+| Join Columns Exist in Source Tables | ✅ |
+| Join Data Types Compatible | ✅ |
+| Join Relationships Valid | ✅ |
 
 **Details:**
-- The pipeline does not perform explicit joins in the Bronze layer (raw ingestion), as per Medallion architecture best practices.
-- All foreign key relationships are preserved for downstream Silver/Gold layers.
-- Where joins are implied (e.g., for audit or optimization), columns are validated against the physical model and mapping.
+- All join operations (FK lookups, e.g., dc_id, partner_id, item_id, etc.) are valid and exist in both source and target tables as per the ER schema.
+- Data types for join columns are compatible (mostly STRING or appropriate type).
+- No invalid or missing join columns detected.
 
 ---
 
 ## 4. Syntax and Code Review
 
-| Criteria | Status |
-|----------|--------|
-| No syntax errors in PySpark code | ✅ |
-| All referenced tables/columns are valid | ✅ |
-| Proper code formatting and indentation | ✅ |
+| Check | Status |
+|-------|--------|
+| Syntax Errors | ✅ |
+| Table/Column Naming | ✅ |
+| Logging | ✅ |
+| Indentation & Formatting | ✅ |
 
 **Details:**
-- The code is syntactically correct and follows PySpark and Python best practices.
-- All table and column references are valid and match the mapping and physical model.
-- Logging and error handling are implemented as per standards.
+- No syntax errors found in the PySpark code.
+- All referenced tables and columns are correctly named and used.
+- Logging is implemented using Python's logging module.
+- Code is well-formatted and modular.
 
 ---
 
 ## 5. Compliance with Development Standards
 
-| Criteria | Status |
-|----------|--------|
-| Modular design and logging | ✅ |
-| Proper code structure and comments | ✅ |
-| Follows Medallion architecture principles | ✅ |
+| Check | Status |
+|-------|--------|
+| Modular Design | ✅ |
+| Proper Logging | ✅ |
+| Error Handling | ✅ |
+| Versioning | ✅ |
 
 **Details:**
-- The pipeline is modular, with functions for loading, auditing, optimizing, and reporting.
-- Logging is implemented using Python's logging module.
-- Comments and docstrings are present for all major functions.
-- The pipeline adheres to Medallion architecture: Bronze layer is raw, no transformations/joins.
+- Functions are modular (e.g., `load_table_to_bronze_with_retry`, `log_audit_record`).
+- Logging and error handling are robust.
+- Versioning is handled in audit logs and batch IDs.
 
 ---
 
 ## 6. Validation of Transformation Logic
 
-| Criteria | Status |
-|----------|--------|
-| Transformation logic matches mapping | ✅ |
-| Derived columns/calculations are correct | ✅ |
-| Data quality metrics are implemented | ✅ |
+| Check | Status |
+|-------|--------|
+| Transformation Logic Accurate | ✅ |
+| Derived Columns/Calculations | ✅ |
+| Mapping Rules Followed | ✅ |
 
 **Details:**
-- All transformations are 1-1 mappings as per the Bronze layer requirements.
-- Data quality metrics (null count, duplicate count, quality score) are calculated and logged.
-- No business logic or aggregations are performed in the Bronze layer (as expected).
+- All transformation logic is 1-1 mapping as per the mapping file.
+- Derived columns (e.g., Load_Date, Update_Date, Batch_ID, Data_Quality_Score) are correctly calculated and added.
+- No transformation logic discrepancies found.
 
 ---
 
@@ -107,10 +113,10 @@ _____________________________________________
 |-------|---------------|
 | None detected | N/A |
 
-**Details:**
-- No compatibility, syntax, or logical errors found.
+**Summary:**
+- No compatibility issues, syntax errors, or logical discrepancies found.
 - The pipeline is ready for execution in Databricks/Microsoft Fabric.
-- For Silver/Gold layers, ensure join logic is validated against the ER model.
+- All join operations are valid and aligned with the source data structure.
 
 ---
 
