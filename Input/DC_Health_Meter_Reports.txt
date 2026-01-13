@@ -1,0 +1,233 @@
+Analytical Reporting Requirements for DC Health Meter (Distribution Center Performance Monitoring)
+
+Following are the reporting requirements for the DC Health Meter initiative to monitor performance, labor, and inventory health across distribution centers (DCs). A conceptual analytical data model is to be developed by understanding these reporting requirements and the acceptance criteria.
+
+1. DC Health Scorecard (Daily / Weekly)
+
+Objectives of the Report:
+Provide a single, comparable “health view” of each DC across Operations, Inventory, Picks, Headcount/Labor, Kronos adherence, and Exceptions to enable rapid course-correction.
+
+Uses of the Report:
+Identify DCs trending below target and prioritize support. Compare performance across DCs, regions, and partner operations. Track leading indicators (exceptions, staffing gaps) that predict service failures.
+
+Data Attributes in the Report:
+DC name, region, and organization hierarchy. Date and shift. Partner and partner type. Health score by domain (Ops, Inv, Picks, Labor, Kronos, Exceptions). Top exceptions and impacted activities/items.
+
+KPIs and Metrics in the Report:
+Overall DC Health Score (0–100). On-time shipping % (or service level %). Throughput units/hour. Pick accuracy %. Inventory availability % (or stockout %). Staffing variance % (planned vs actual). Kronos adherence % (scheduled vs worked). Exceptions per 1,000 units.
+
+Interactivity in the Report:
+Drill Down: Network → Region → DC → Shift. Drill Through: From a score tile to the underlying fact (picks, labor, exceptions). Drill Up: Compare DC health across weeks/months. Slicers: Partner, partner type, activity, equipment.
+
+Calculations in the Report:
+Health Score = weighted composite of normalized domain scores (configurable weights). Staffing variance % = (Actual HC - Planned HC) / Planned HC × 100. Exceptions per 1,000 units = Exception Count / Throughput Units × 1,000.
+
+Data Constraints:
+* DC must exist in Organization hierarchy and be active for the selected date.
+* Health Score must be between 0 and 100.
+* Prevent duplicate score records for a unique grain (DC, Date, Shift, Partner).
+
+Validations:
+* Ensure component domain scores roll up to the overall score per the configured weights.
+* Validate that measures used in rates (e.g., throughput units) are non-zero where required.
+* Ensure that drill-through totals reconcile to source fact totals.
+
+Security Access for the Report:
+DC managers can view their own DC. Regional leaders can view DCs in their region. Corporate supply chain leadership can view the full network.
+
+Indicative Layout of the Report:
+Top section: Score tiles (Overall + 6 domain scores) with target bands. Middle section: Trend lines for health score and service level. Bottom section: Exceptions leaderboard and “drivers” table by activity/shift.
+
+2. Shift Operations Performance Report
+
+Objectives of the Report:
+Monitor shift-level execution performance (receiving, putaway, picking, packing, shipping) with throughput and cycle-time visibility.
+
+Uses of the Report:
+Detect bottlenecks by activity and equipment. Balance labor and workload across shifts. Improve on-time execution and reduce cycle time.
+
+Data Attributes in the Report:
+DC, date, shift. Activity and equipment. Partner and partner type. Volume processed, start/end time, cycle time, backlog.
+
+KPIs and Metrics in the Report:
+Throughput Units/Hour. Cycle Time (mins). Backlog Units. On-time Start %. On-time Completion %. Rework/Defect rate (if available).
+
+Interactivity in the Report:
+Drill Down: Activity → Sub-activity (optional). Drill Through: From activity totals to transaction/scan level (if available). Drill Up: DC → Region → Network.
+
+Calculations in the Report:
+Units/Hour = Total Units Processed / Labor Hours Worked. Cycle Time = Activity End Timestamp - Activity Start Timestamp. Backlog = Planned Volume - Completed Volume.
+
+Data Constraints:
+* Activity must be one of predefined values (Receiving, Putaway, Picking, Packing, Shipping, CycleCount, etc.).
+* Units and hours must be non-negative.
+* Timestamp order must be valid (end >= start).
+
+Validations:
+* Validate throughput is calculated using the correct labor hours grain (shift/activity).
+* Ensure backlog does not become negative (cap at 0 unless explicitly allowed).
+
+Security Access for the Report:
+Same as DC Health Scorecard, with additional restriction for partner-operated DCs if required.
+
+Indicative Layout of the Report:
+Top: KPI strip (Throughput, Cycle Time, Backlog). Middle: Activity bar chart + equipment utilization. Bottom: Detailed table by shift/activity/partner.
+
+3. Inventory Health & Availability Report
+
+Objectives of the Report:
+Track inventory position and availability by DC and item to reduce stockouts, overstock, and operational disruption.
+
+Uses of the Report:
+Spot item-level availability risks by DC. Improve replenishment planning and redistribution. Track inventory accuracy and adjustments (if available).
+
+Data Attributes in the Report:
+DC, date. Item, category, and status (active/discontinued). On-hand, available, allocated, damaged, on-order. Safety stock and reorder parameters (if available).
+
+KPIs and Metrics in the Report:
+Stockout % (items with available = 0). Availability % (available/on-hand). Days of Supply. Inventory Accuracy % (if cycle count exists). Aged Inventory %.
+
+Interactivity in the Report:
+Drill Down: Category → Item. Drill Through: Item to adjustment/cycle count history (if available). Drill Up: DC → Region.
+
+Calculations in the Report:
+Days of Supply = Available Qty / Avg Daily Demand (configurable window). Stockout % = (# items with available=0) / (total items) × 100.
+
+Data Constraints:
+* Quantities must be non-negative; available <= on-hand.
+* Item master must be unique per item identifier.
+* Prevent duplicate inventory snapshots for a unique grain (DC, Date, Item).
+
+Validations:
+* Validate Days of Supply is not negative and handles zero demand.
+* Ensure availability and stockout logic aligns to business rules.
+
+Security Access for the Report:
+Inventory planners can view network. DC managers see their DC. Executives see aggregates.
+
+Indicative Layout of the Report:
+Top: KPI cards (Stockout %, Availability %, Days of Supply). Middle: Heatmap of DC vs stockout risk. Bottom: Item detail table.
+
+4. Picks Productivity & Quality Report
+
+Objectives of the Report:
+Measure picking productivity and accuracy to improve outbound performance and customer service.
+
+Uses of the Report:
+Identify underperforming shifts/partners. Compare performance by activity type and item characteristics. Target coaching and process improvements.
+
+Data Attributes in the Report:
+DC, date, shift. Partner and partner type. Item (optional), activity. Pick lines, pick units, errors/mis-picks, rework counts.
+
+KPIs and Metrics in the Report:
+Pick Rate (units/hour). Lines/Hour. Pick Accuracy %. Error Rate per 1,000 lines. First-time-right %.
+
+Interactivity in the Report:
+Drill Down: DC → Shift → Partner. Drill Through: From KPI to pick transaction exceptions (if available). Drill Up: Weekly/monthly benchmarking.
+
+Calculations in the Report:
+Pick Rate = Pick Units / Labor Hours. Pick Accuracy % = (1 - Errors / Total Picks) × 100.
+
+Data Constraints:
+* Pick units and lines must be non-negative integers.
+* Accuracy % must be between 0% and 100%.
+* Prevent duplicate pick aggregates for a unique grain (DC, Date, Shift, Partner, Activity, Item [optional]).
+
+Validations:
+* Validate errors do not exceed total picks.
+* Ensure labor hours used are aligned to the same grain as pick aggregates.
+
+Security Access for the Report:
+Operations leaders and DC managers; optional masking of employee identifiers if included.
+
+Indicative Layout of the Report:
+Top: KPI cards (Pick Rate, Accuracy). Middle: Trend and distribution by shift/partner. Bottom: Detail table by activity/item.
+
+5. Labor, Headcount & Kronos Adherence Report
+
+Objectives of the Report:
+Provide visibility into planned vs actual staffing and timekeeping adherence using Kronos (or equivalent workforce system).
+
+Uses of the Report:
+Detect staffing gaps and overtime risk early. Monitor attendance, adherence, and unplanned labor. Support partner performance reviews and labor planning.
+
+Data Attributes in the Report:
+DC, date, shift. Partner, partner type. Employee (optional/role-based access), labor role. Planned headcount, actual headcount, scheduled hours, worked hours, overtime, absence flags.
+
+KPIs and Metrics in the Report:
+Planned vs Actual Headcount Variance %. Labor Hours Variance %. Overtime Hours %. Absence Rate %. Kronos Adherence % (worked within scheduled window).
+
+Interactivity in the Report:
+Drill Down: Region → DC → Shift → Role. Drill Through: Shift metrics to employee timecard (restricted). Drill Up: Trend over pay periods.
+
+Calculations in the Report:
+Kronos Adherence % = Hours Worked Within Schedule / Total Hours Worked × 100. Overtime % = Overtime Hours / Total Hours Worked × 100.
+
+Data Constraints:
+* Scheduled and worked hours must be non-negative.
+* Employee identifiers must be unique; PII access must be role-restricted.
+* Prevent duplicate timecard records for a unique grain (Employee, Date, Shift).
+
+Validations:
+* Validate that overtime is computed correctly and not negative.
+* Reconcile headcount aggregates to underlying timecard counts (where applicable).
+
+Security Access for the Report:
+HR/Workforce admins can view employee details. Operations/BI see aggregates. DC managers restricted to their DC.
+
+Indicative Layout of the Report:
+Top: KPI cards (HC variance, adherence, overtime). Middle: Trend by pay period and partner. Bottom: Detail by shift/role.
+
+6. Exceptions & Root Cause Report
+
+Objectives of the Report:
+Track operational exceptions (system, process, inventory, equipment) and quantify their impact on throughput, service level, and labor.
+
+Uses of the Report:
+Identify top exception drivers by DC/shift/activity. Prioritize corrective actions and standard work. Measure time-to-resolve and recurring issues.
+
+Data Attributes in the Report:
+Exception event id, type, severity, status, opened/closed timestamps. DC, date, shift, partner, activity. Item/equipment (if applicable). Impact units/time.
+
+KPIs and Metrics in the Report:
+Exception Count. Exceptions per 1,000 units. Mean Time to Resolve (MTTR). Repeat Rate %. Impact Minutes. Impacted Units.
+
+Interactivity in the Report:
+Drill Down: Exception Type → Subtype → Event. Drill Through: Event to notes/work orders (if available). Drill Up: Trend by week/month.
+
+Calculations in the Report:
+MTTR = Avg(Closed Timestamp - Opened Timestamp). Repeat Rate % = (# exceptions repeating within window) / (total exceptions) × 100.
+
+Data Constraints:
+* Exception Type must be a predefined domain (Inventory, Equipment, System, Process, Safety, Quality, etc.).
+* Severity must be one of {Low, Medium, High, Critical}.
+* Closed timestamp must be >= opened timestamp.
+* Prevent duplicates for unique Exception Event ID.
+
+Validations:
+* Validate MTTR calculations and time window logic.
+* Ensure impacts roll up to affected facts (e.g., throughput loss) where defined.
+
+Security Access for the Report:
+DC operations and engineering teams; executives view aggregates.
+
+Indicative Layout of the Report:
+Top: KPIs (Count, MTTR, Impact). Middle: Pareto chart of exception types. Bottom: Detailed exception events table.
+
+Conceptual Model Diagram (High-level Entities & Relationships):
+Entities: DistributionCenter, Organization, Date, Shift, Partner, PartnerType, Item, Activity, Equipment, Employee, ExceptionEvent.
+Facts: Fact_DC_Operations, Fact_Inventory, Fact_Headcount, Fact_Picks, Fact_Kronos, Fact_Exceptions.
+
+Relationship Summary (Conceptual):
+* Organization 1—M DistributionCenter
+* DistributionCenter 1—M Shift
+* PartnerType 1—M Partner
+* DistributionCenter M—M Partner (through DC-Partner assignment in facts)
+* Item M—M Activity (through operational and pick facts)
+* Equipment M—M Activity (through operational facts)
+* Employee M—1 Partner and M—1 DistributionCenter (at time of work)
+* All facts link to Date; operational facts link to Shift; exception facts link to ExceptionEvent.
+
+Review & Sign-off Plan:
+* Walkthrough with Supply Chain, BI, Data Engineering, and Architecture.
+* Capture feedback items, update conceptual baseline, and obtain sign-off for the logical modeling phase.
